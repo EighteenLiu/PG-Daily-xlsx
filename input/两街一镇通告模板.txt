@@ -1,0 +1,5 @@
+{{ date }}，区级检查滨河街道{{ binhe.community_count }}个小区，发现问题{{ binhe.problem_count }}处，主要问题为{{ binhe.top1.name }}（{{ binhe.top1.percent }}%）、{{ binhe.top2.name }}（{{ binhe.top2.percent }}%）。其中{{ binhe.location1.name }}问题占比最高，占比{{ binhe.location1.percent }}%，{{ binhe.location2.name }}问题占比{{ binhe.location2.percent }}%，{{ binhe.location3.name }}问题占比{{ binhe.location3.percent }}%。
+
+检查兴谷街道{{ xinggu.community_count }}个小区，发现问题{{ xinggu.problem_count }}处，主要问题为{{ xinggu.top1.name }}（{{ xinggu.top1.percent }}%）、{{ xinggu.top2.name }}（{{ xinggu.top2.percent }}%）。其中{{ xinggu.location1.name }}问题占比最高，占比{{ xinggu.location1.percent }}%，{{ xinggu.location2.name }}问题占比{{ xinggu.location2.percent }}%，{{ xinggu.location3.name }}问题占比{{ xinggu.location3.percent }}%。
+
+检查平谷镇{{ pinggu.community_count }}个小区，发现问题{{ pinggu.problem_count }}处，主要问题为{{ pinggu.top1.name }}（{{ pinggu.top1.percent }}%）、{{ pinggu.top2.name }}（{{ pinggu.top2.percent }}%）。其中{{ pinggu.location1.name }}问题占比最高，占比{{ pinggu.location1.percent }}%，{{ pinggu.location2.name }}问题占比{{ pinggu.location2.percent }}%，{{ pinggu.location3.name }}问题占比{{ pinggu.location3.percent }}%。
