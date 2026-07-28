@@ -169,6 +169,8 @@ def test_accuracy_statistics_updates_by_name_only(tmp_path: Path) -> None:
     sheet.append([8, "点位", "小区", "街道A", "社区D", "驿站小区", "垃圾分类", "垃圾分类驿站", "无问题", "无问题"])
     sheet.append([9, "点位", "村居", "镇A", "村A", "幸福村", "垃圾分类", "居民自主投放", "投放错误", "垃圾分类驿站桶错误（查35错4）"])
     sheet.append([10, "点位", "村居", "镇A", "村B", "忽略村", "垃圾分类", "容器满冒", "容器垃圾满冒堆积", "普通问题"])
+    sheet.append([11, "点位", "小区", "街道B", "社区X", "新增小区", "垃圾分类", "居民自主投放", "投放错误", "投放错误（查20错5）"])
+    sheet.append([12, "点位", "村居", "镇B", "新增村", None, "垃圾分类", "居民自主投放", "投放错误", "普通投放错误"])
     workbook.save(problem_path)
 
     stats_path = tmp_path / "统计表.xlsx"
@@ -204,11 +206,26 @@ def test_accuracy_statistics_updates_by_name_only(tmp_path: Path) -> None:
     assert updated["小区"].cell(row=6, column=15).value == datetime(2026, 7, 8)
     assert updated["小区"].cell(row=7, column=10).value == 1
     assert updated["小区"].cell(row=7, column=15).value == datetime(2026, 7, 8)
+    assert updated["小区"].cell(row=8, column=1).value == 5
+    assert updated["小区"].cell(row=8, column=2).value == "街道B"
+    assert updated["小区"].cell(row=8, column=3).value == "社区X"
+    assert updated["小区"].cell(row=8, column=4).value == "新增小区"
+    assert updated["小区"].cell(row=8, column=9).value == 10
+    assert updated["小区"].cell(row=8, column=10).value == 5
+    assert updated["小区"].cell(row=8, column=15).value == datetime(2026, 7, 8)
+    assert updated["小区"].cell(row=8, column=15).number_format == "m月d日"
     assert updated["村居"].cell(row=4, column=5).value == 4
     assert updated["村居"].cell(row=4, column=10).value == datetime(2026, 7, 8)
     assert updated["村居"].cell(row=4, column=10).number_format == "m月d日"
     assert updated["村居"].cell(row=5, column=5).value == "-"
     assert updated["村居"].cell(row=5, column=10).value == datetime(2026, 7, 8)
+    assert updated["村居"].cell(row=6, column=1).value == 3
+    assert updated["村居"].cell(row=6, column=2).value == "镇B"
+    assert updated["村居"].cell(row=6, column=3).value == "新增村"
+    assert updated["村居"].cell(row=6, column=4).value == 10
+    assert updated["村居"].cell(row=6, column=5).value == 1
+    assert updated["村居"].cell(row=6, column=10).value == datetime(2026, 7, 8)
+    assert updated["村居"].cell(row=6, column=10).number_format == "m月d日"
 
 
 def test_notice_generation_uses_two_streets_and_one_town(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from copy import copy
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -19,6 +20,9 @@ FULLWIDTH_DIGITS = str.maketrans("０１２３４５６７８９", "0123456789")
 class AccuracyUpdate:
     names: list[str]
     error_count: int | str
+    street_name: str
+    community_name: str
+    location_name: str
 
 
 class AccuracyService:
@@ -37,20 +41,31 @@ class AccuracyService:
         updates = self._collect_updates(problem)
         workbook = load_workbook(source)
 
-        missing: list[str] = []
         for sheet_name, records in updates.items():
             if sheet_name not in workbook.sheetnames:
                 raise LedgerProcessingError(f"统计表缺少 Sheet：{sheet_name}")
             sheet = workbook[sheet_name]
             name_col = self._find_name_col(sheet, sheet_name)
             error_col = self._find_accuracy_error_col(sheet)
+            total_col = self._find_accuracy_total_col(sheet, error_col)
             date_col = self._find_date_col(sheet)
             row_map = self._build_name_row_map(sheet, name_col)
             matched_updates: dict[int, int | str] = {}
             for record in records:
                 row_index = self._match_location_row(row_map, record.names)
                 if not row_index:
-                    missing.append(f"{sheet_name}:{'/'.join(record.names)}")
+                    row_index = self._append_location_row(
+                        sheet,
+                        sheet_name,
+                        record,
+                        name_col,
+                        total_col,
+                        error_col,
+                        date_col,
+                        date_value,
+                        date_label,
+                    )
+                    row_map[self._normalize_name(record.location_name)] = row_index
                     continue
                 if row_index not in matched_updates:
                     matched_updates[row_index] = record.error_count
@@ -66,10 +81,6 @@ class AccuracyService:
 
         target = source.with_name(f"{date_label}小区村值守率及投放准确率统计.xlsx")
         workbook.save(target)
-        if missing:
-            raise LedgerProcessingError(
-                "准确率统计表已保存，但以下点位未找到，未新增行：" + "、".join(missing[:20])
-            )
         return target
 
     def _collect_updates(self, problem: LedgerData) -> dict[str, list[AccuracyUpdate]]:
@@ -89,6 +100,10 @@ class AccuracyService:
             point_type = self._cell_text(row, indexes["2级点位"])
             if point_type not in grouped:
                 continue
+            street_name = self._point_field_value(problem, row, "3级点位")
+            community_name = self._point_field_value(problem, row, "4级点位")
+            fifth_point = self._point_field_value(problem, row, "5级点位")
+            location_name = fifth_point or community_name or street_name
             names = self._candidate_location_names(row, candidate_name_indexes)
             if not names:
                 continue
@@ -101,6 +116,9 @@ class AccuracyService:
                     "has_check_error": False,
                     "has_fallback_match": False,
                     "fallback_count": 0,
+                    "street_name": street_name,
+                    "community_name": community_name,
+                    "location_name": location_name,
                 },
             )
             problem_text = self._cell_text(row, indexes["具体问题"])
@@ -127,7 +145,15 @@ class AccuracyService:
                     error_value = int(record["fallback_count"])
                 else:
                     error_value = "-"
-                updates[point_type].append(AccuracyUpdate(list(record["names"]), error_value))
+                updates[point_type].append(
+                    AccuracyUpdate(
+                        list(record["names"]),
+                        error_value,
+                        str(record["street_name"]),
+                        str(record["community_name"]),
+                        str(record["location_name"]),
+                    )
+                )
         return updates
 
     def _parse_error_count(self, text: str) -> int | None:
@@ -151,6 +177,10 @@ class AccuracyService:
                 result.append(value)
         return result
 
+    def _point_field_value(self, problem: LedgerData, row: list[object], field_name: str) -> str:
+        index = self._optional_header_index(problem.headers, field_name)
+        return self._cell_text(row, index) if index is not None else ""
+
     def _match_location_row(self, row_map: dict[str, int], names: list[str]) -> int | None:
         for name in names:
             row_index = row_map.get(self._normalize_name(name))
@@ -173,12 +203,100 @@ class AccuracyService:
                 return cell.column
         raise LedgerProcessingError(f"{sheet.title} Sheet 未找到投放错误数列")
 
+    def _find_accuracy_total_col(self, sheet: Worksheet, error_col: int) -> int:
+        header_row = self._find_header_row(sheet, "投放总数")
+        for col_index in range(error_col - 1, 0, -1):
+            if str(sheet.cell(row=header_row, column=col_index).value or "").strip() == "投放总数":
+                return col_index
+        raise LedgerProcessingError(f"{sheet.title} Sheet 未找到投放总数列")
+
     def _find_date_col(self, sheet: Worksheet) -> int:
         for row in sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 5)):
             for cell in row:
                 if str(cell.value or "").strip() == "日期":
                     return cell.column
         raise LedgerProcessingError(f"{sheet.title} Sheet 未找到日期列")
+
+    def _append_location_row(
+        self,
+        sheet: Worksheet,
+        sheet_name: str,
+        record: AccuracyUpdate,
+        name_col: int,
+        total_col: int,
+        error_col: int,
+        date_col: int,
+        date_value: date | None,
+        date_label: str,
+    ) -> int:
+        row_index = sheet.max_row + 1
+        template_row = max(4, sheet.max_row)
+        self._copy_row_style(sheet, template_row, row_index)
+
+        serial_col = self._optional_header_col(sheet, "序号")
+        street_col = self._street_col(sheet, sheet_name)
+        community_col = self._optional_header_col(sheet, "社区/村名称") if sheet_name == "小区" else None
+
+        if serial_col:
+            sheet.cell(row=row_index, column=serial_col).value = self._next_serial_number(sheet, serial_col)
+        sheet.cell(row=row_index, column=street_col).value = record.street_name
+        if community_col:
+            sheet.cell(row=row_index, column=community_col).value = record.community_name
+        sheet.cell(row=row_index, column=name_col).value = record.location_name
+        sheet.cell(row=row_index, column=total_col).value = 10
+        sheet.cell(row=row_index, column=error_col).value = record.error_count
+        date_cell = sheet.cell(row=row_index, column=date_col)
+        date_cell.value = date_value if date_value else date_label
+        if date_value:
+            date_cell.number_format = "m月d日"
+        return row_index
+
+    def _copy_row_style(self, sheet: Worksheet, source_row: int, target_row: int) -> None:
+        if source_row >= target_row:
+            return
+        sheet.row_dimensions[target_row].height = sheet.row_dimensions[source_row].height
+        for col_index in range(1, sheet.max_column + 1):
+            source_cell = sheet.cell(row=source_row, column=col_index)
+            target_cell = sheet.cell(row=target_row, column=col_index)
+            if source_cell.has_style:
+                target_cell._style = copy(source_cell._style)
+            if source_cell.number_format:
+                target_cell.number_format = source_cell.number_format
+            if source_cell.alignment:
+                target_cell.alignment = copy(source_cell.alignment)
+            if source_cell.border:
+                target_cell.border = copy(source_cell.border)
+            if source_cell.fill:
+                target_cell.fill = copy(source_cell.fill)
+            if source_cell.font:
+                target_cell.font = copy(source_cell.font)
+
+    def _next_serial_number(self, sheet: Worksheet, serial_col: int) -> int:
+        values = [
+            sheet.cell(row=row_index, column=serial_col).value
+            for row_index in range(4, sheet.max_row + 1)
+        ]
+        numbers = [value for value in values if isinstance(value, int)]
+        return (max(numbers) if numbers else 0) + 1
+
+    def _street_col(self, sheet: Worksheet, sheet_name: str) -> int:
+        candidates = ["街道/乡镇名称", "街乡镇\n名称", "街乡镇名称"]
+        if sheet_name == "村居":
+            candidates = ["街乡镇\n名称", "街乡镇名称", "街道/乡镇名称"]
+        for candidate in candidates:
+            col = self._optional_header_col(sheet, candidate)
+            if col:
+                return col
+        raise LedgerProcessingError(f"{sheet.title} Sheet 未找到街乡镇列")
+
+    def _optional_header_col(self, sheet: Worksheet, text: str) -> int | None:
+        target = re.sub(r"\s+", "", text)
+        for row in sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 5)):
+            for cell in row:
+                value = re.sub(r"\s+", "", str(cell.value or ""))
+                if value == target:
+                    return cell.column
+        return None
 
     def _find_header_row(self, sheet: Worksheet, text: str) -> int:
         for row in sheet.iter_rows(min_row=1, max_row=min(sheet.max_row, 5)):
