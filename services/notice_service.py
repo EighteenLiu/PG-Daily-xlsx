@@ -102,13 +102,14 @@ class NoticeService:
             for row in rows
             if self._cell_text(row, problem_type_idx)
         ]
-        type_rank = self._rank(Counter(problem_types), problem_count, 2, describe_issue=True)
+        type_rank = self._rank(Counter(problem_types), problem_count, 3, describe_issue=True)
         location_rank = self._rank(Counter(community_names), problem_count, 3)
         return {
             "community_count": len(set(community_names)),
             "problem_count": problem_count,
             "top1": type_rank[0],
             "top2": type_rank[1],
+            "top3": type_rank[2],
             "location1": location_rank[0],
             "location2": location_rank[1],
             "location3": location_rank[2],
@@ -158,7 +159,7 @@ class NoticeService:
         )
 
     def _format_top_issues(self, stats: dict[str, Any]) -> str:
-        items = [stats["top1"], stats["top2"]]
+        items = [stats["top1"], stats["top2"], stats["top3"]]
         return "、".join(f"{item.name}（{item.percent}%）" for item in items if item.count > 0)
 
     def _format_locations(self, stats: dict[str, Any]) -> str:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import tkinter as tk
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
+from openpyxl.workbook.workbook import Workbook
 
 from services.excel_processor import ExcelProcessor, LedgerData, LedgerProcessingError
 from services.accuracy_service import AccuracyService
@@ -29,6 +31,8 @@ class LedgerApp(ctk.CTk):
         self.resident: LedgerData | None = None
         self.split_ledgers: dict[str, LedgerData] = {}
         self.selected_split_name: str | None = None
+        self.accuracy_workbook: Workbook | None = None
+        self.accuracy_export_name = ""
         self.resident_generated = False
         self.accuracy_updated = False
         self.current_stage = "原始台账"
@@ -114,7 +118,7 @@ class LedgerApp(ctk.CTk):
 
         self.info_box = ctk.CTkTextbox(sidebar, height=120, wrap="word")
         self.info_box.grid(row=row, column=0, sticky="ew", padx=12, pady=(12, 16))
-        self.info_box.insert("1.0", "右侧导出当前台账会导出当前预览内容\n导出拆分Excel会批量导出全部拆分表")
+        self.info_box.insert("1.0", "右侧导出当前表格会弹窗选择保存位置\n导出拆分Excel会批量导出全部拆分表")
         self.info_box.configure(state="disabled")
 
         table_frame = ctk.CTkFrame(body)
@@ -127,13 +131,13 @@ class LedgerApp(ctk.CTk):
 
         self.export_current_button = ctk.CTkButton(
             table_frame,
-            text="导出当前台账",
+            text="导出当前表格",
             command=self.export_current,
             width=120,
             height=32,
         )
         self.export_current_button.grid(row=0, column=0, sticky="e", padx=(12, 410), pady=12)
-        self.buttons["导出当前台账"] = self.export_current_button
+        self.buttons["导出当前表格"] = self.export_current_button
 
         self.notice_button = ctk.CTkButton(
             table_frame,
@@ -277,12 +281,16 @@ class LedgerApp(ctk.CTk):
         if not path:
             return
 
-        def action() -> Path:
-            saved = self.accuracy_service.update_statistics(self.problem, path)
+        def action() -> None:
+            self.accuracy_workbook, self.accuracy_export_name = self.accuracy_service.build_updated_workbook(
+                self.problem,
+                path,
+            )
             self.accuracy_updated = True
-            self._set_status(f"准确率统计表已更新：{saved}")
+            self.current_stage = "准确率统计表"
+            self._display_workbook_preview(self.accuracy_workbook, "准确率统计表")
+            self._set_status("准确率统计表已更新，请点击“导出当前表格”选择位置保存")
             self._update_button_states()
-            return saved
 
         self._run("更新准确率统计表", action)
 
@@ -320,20 +328,43 @@ class LedgerApp(ctk.CTk):
         self._run("拆分预览", action)
 
     def export_current(self) -> None:
+        if self.current_stage == "准确率统计表" and self.accuracy_workbook:
+            default = self.accuracy_export_name or "小区村值守率及投放准确率统计.xlsx"
+            path = filedialog.asksaveasfilename(
+                title="导出当前表格",
+                defaultextension=".xlsx",
+                initialdir=str(app_root() / "output"),
+                initialfile=default,
+                filetypes=[("Excel 工作簿", "*.xlsx")],
+            )
+            if path:
+                self._run("导出当前表格", lambda: self._save_accuracy_workbook(path))
+            return
+
         data = self._current_data()
         if not data:
             self._warn("当前没有可导出的台账")
             return
         default = self._default_export_name(data, self.current_stage)
         path = filedialog.asksaveasfilename(
-            title="导出当前台账",
+            title="导出当前表格",
             defaultextension=".xlsx",
             initialdir=str(app_root() / "output"),
             initialfile=default,
             filetypes=[("Excel 工作簿", "*.xlsx")],
         )
         if path:
-            self._run("导出当前台账", lambda: self.processor.save_ledger(data, path))
+            self._run("导出当前表格", lambda: self.processor.save_ledger(data, path))
+
+    def _save_accuracy_workbook(self, path: str | Path) -> Path:
+        if not self.accuracy_workbook:
+            raise LedgerProcessingError("当前没有可导出的准确率统计表")
+        out_path = Path(path)
+        if out_path.suffix.lower() != ".xlsx":
+            out_path = out_path.with_suffix(".xlsx")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        self.accuracy_workbook.save(out_path)
+        return out_path
 
     def export_all(self) -> None:
         if not self.split_ledgers:
@@ -362,6 +393,7 @@ class LedgerApp(ctk.CTk):
         self.resident = None
         self.split_ledgers = {}
         self.selected_split_name = None
+        self._clear_accuracy_preview()
         self.resident_generated = False
         self.accuracy_updated = False
         self.current_stage = "原始台账"
@@ -375,6 +407,7 @@ class LedgerApp(ctk.CTk):
         self.resident = None
         self.split_ledgers = {}
         self.selected_split_name = None
+        self._clear_accuracy_preview()
         self.resident_generated = False
         self.accuracy_updated = False
         self.current_stage = "基础台账"
@@ -387,6 +420,7 @@ class LedgerApp(ctk.CTk):
         self.resident = None
         self.split_ledgers = {}
         self.selected_split_name = None
+        self._clear_accuracy_preview()
         self.resident_generated = False
         self.accuracy_updated = False
         self.current_stage = "问题台账"
@@ -398,6 +432,10 @@ class LedgerApp(ctk.CTk):
         self._show_table(data.headers, data.preview_rows(), title)
         self._set_status(f"{title}：{len(data.rows)} 条记录，{len(data.headers)} 列")
 
+    def _clear_accuracy_preview(self) -> None:
+        self.accuracy_workbook = None
+        self.accuracy_export_name = ""
+
     def _show_table(self, headers: list[str], rows: list[list[object]], title: str) -> None:
         self.table_title.configure(text=title)
         self.tree.delete(*self.tree.get_children())
@@ -407,6 +445,26 @@ class LedgerApp(ctk.CTk):
             self.tree.column(header, width=max(110, min(len(header) * 18 + 40, 240)), stretch=True)
         for row in rows[:300]:
             self.tree.insert("", "end", values=[("" if value is None else value) for value in row])
+
+    def _display_workbook_preview(self, workbook: Workbook, title: str) -> None:
+        sheet = workbook.active
+        max_col = min(sheet.max_column, 20)
+        headers = ["行号", *[f"列{index}" for index in range(1, max_col + 1)]]
+        rows = [
+            [row_index, *[
+                self._format_workbook_preview_value(sheet.cell(row=row_index, column=col_index).value)
+                for col_index in range(1, max_col + 1)
+            ]]
+            for row_index in range(1, min(sheet.max_row, 300) + 1)
+        ]
+        self._show_table(headers, rows, f"{title}预览：{sheet.title}")
+
+    def _format_workbook_preview_value(self, value: object) -> object:
+        if isinstance(value, datetime):
+            return f"{value.month}月{value.day}日"
+        if isinstance(value, date):
+            return f"{value.month}月{value.day}日"
+        return value
 
     def _current_data(self) -> LedgerData | None:
         if self.current_stage == "居民自主投放表":
@@ -460,7 +518,8 @@ class LedgerApp(ctk.CTk):
             "下一步": self._next_step_enabled(),
             "生成基础台账": self.original is not None,
             "导入基础台账": True,
-            "导出当前台账": self._current_data() is not None,
+            "导出当前表格": self._current_data() is not None
+            or (self.current_stage == "准确率统计表" and self.accuracy_workbook is not None),
             "生成问题台账": self.base is not None,
             "导入问题台账": True,
             "生成居民自主投放表": self.problem is not None,

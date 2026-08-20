@@ -4,6 +4,7 @@ from datetime import datetime
 
 from openpyxl.drawing.image import Image
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font, PatternFill
 
 from services.excel_processor import ExcelProcessor, LedgerData
 from services.accuracy_service import AccuracyService
@@ -25,6 +26,7 @@ def make_sample(path: Path) -> None:
         "问题照片2",
         "问题照片3",
         "问题照片4",
+        "问题照片5",
         "整改照片",
         "责任单位",
         "检查员",
@@ -38,9 +40,9 @@ def make_sample(path: Path) -> None:
         "备注4",
     ]
     rows = [
-        [20260706000048, "A", "村居", "新华", "loc", "分类投放", "桶满冒", "2026-07-08", "p1", "p2", "p3", "p4", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
-        [20260706000049, "A", "小区", "阳光小区", "loc", "环境", "无问题", "2026-07-08", "p1", "p2", "p3", "p4", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
-        [20260706000050, "A", "小区", "花园", "loc", "环境", "垃圾落地", "2026-07-08", "p1", "p2", "p3", "p4", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
+        [20260706000048, "A", "村居", "新华", "loc", "分类投放", "桶满冒", "2026-07-08", "p1", "p2", "p3", "p4", "p5", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
+        [20260706000049, "A", "小区", "阳光小区", "loc", "环境", "无问题", "2026-07-08", "p1", "p2", "p3", "p4", "p5", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
+        [20260706000050, "A", "小区", "花园", "loc", "环境", "垃圾落地", "2026-07-08", "p1", "p2", "p3", "p4", "p5", "z", "r", "c", "a", "b", "q", 2, 1, 2, 3, 4],
     ]
     workbook = Workbook()
     sheet = workbook.active
@@ -55,6 +57,7 @@ def make_sample(path: Path) -> None:
     )
     sheet.add_image(Image(image_path), "I2")
     sheet.add_image(Image(image_path), "I4")
+    sheet.add_image(Image(image_path), "M4")
     workbook.save(path)
 
 
@@ -68,17 +71,19 @@ def test_pipeline(tmp_path: Path) -> None:
     problem = processor.make_problem_ledger(base)
     split = processor.split_by_location(problem)
 
-    assert len(base.headers) == 15
+    assert len(base.headers) == 16
     assert [row[base.headers.index("编号")] for row in base.rows] == [1, 2, 3]
     assert "定位" not in base.headers
     assert "整改照片" not in base.headers
     assert base.headers[base.headers.index("3级点位") + 1] == "指标名称"
     assert base.headers[base.headers.index("具体问题") + 1] == "上报时间"
-    assert base.headers[-4:] == ["问题照片1", "问题照片2", "问题照片3", "问题照片4"]
+    assert base.headers[-5:] == ["问题照片1", "问题照片2", "问题照片3", "问题照片4", "问题照片5"]
     assert len(problem.rows) == 2
     assert [row[problem.headers.index("编号")] for row in problem.rows] == [1, 3]
-    assert len(problem.images) == 2
+    assert len(problem.images) == 3
     assert set(split) == {"7月8日新华.xlsx", "7月8日花园.xlsx"}
+    assert [row[split["7月8日新华.xlsx"].headers.index("编号")] for row in split["7月8日新华.xlsx"].rows] == [1]
+    assert [row[split["7月8日花园.xlsx"].headers.index("编号")] for row in split["7月8日花园.xlsx"].rows] == [1]
 
     out_dir = tmp_path / "out"
     saved = processor.save_split_ledgers(split, out_dir)
@@ -91,6 +96,10 @@ def test_pipeline(tmp_path: Path) -> None:
     assert sheet.row_dimensions[1].height == 15
     assert sheet.row_dimensions[2].height == 15
     assert sheet.row_dimensions[3].height == 63
+    assert sheet["A3"].value == 1
+    assert "L1:P1" in {str(item) for item in sheet.merged_cells.ranges}
+    assert sheet["P2"].value == "图片5"
+    assert sheet.column_dimensions["P"].width == 10.21
     assert sheet.column_dimensions["F"].width == 12.37
     assert sheet.column_dimensions["G"].width == 12.37
     assert sheet["A1"].font.name == "宋体"
@@ -109,6 +118,10 @@ def test_pipeline(tmp_path: Path) -> None:
     assert sheet["B3"].fill.fill_type is None
     assert exported.active._images[0].anchor.ext.cx == 74 * 9525
     assert exported.active._images[0].anchor.ext.cy == 85 * 9525
+    flower_exported = load_workbook(out_dir / "7月8日花园.xlsx")
+    assert len(flower_exported.active._images) == 2
+    assert flower_exported.active._images[1].anchor.ext.cx == 74 * 9525
+    assert flower_exported.active._images[1].anchor.ext.cy == 85 * 9525
 
     base_path = processor.save_ledger(base, tmp_path / "base.xlsx")
     base_exported = load_workbook(base_path).active
@@ -122,13 +135,13 @@ def test_pipeline(tmp_path: Path) -> None:
     structured_path = tmp_path / "structured.xlsx"
     structured = Workbook()
     structured_sheet = structured.active
-    structured_sheet.append(["编号", "1级点位", "2级点位", "3级点位", "4级点位", "5级点位", "1级指标", "2级指标", "3级指标", "具体问题", "上报时间", "问题照片1", "问题照片2", "问题照片3", "问题照片4"])
-    structured_sheet.append([1, "点位", "小区", "街道A", "社区A", "很长很长的五级点位名称", "垃圾分类", "居民自主投放", "很长很长的三级指标名称", "很长很长的具体问题描述", "2026-07-08", None, None, None, None])
+    structured_sheet.append(["编号", "1级点位", "2级点位", "3级点位", "4级点位", "5级点位", "1级指标", "2级指标", "3级指标", "具体问题", "上报时间", "问题照片1", "问题照片2", "问题照片3", "问题照片4", "问题照片5"])
+    structured_sheet.append([1, "点位", "小区", "街道A", "社区A", "很长很长的五级点位名称", "垃圾分类", "居民自主投放", "很长很长的三级指标名称", "很长很长的具体问题描述", "2026-07-08", None, None, None, None, None])
     structured.save(structured_path)
     structured_export = tmp_path / "structured_out.xlsx"
     processor.save_ledger(processor.load_ledger(structured_path), structured_export)
     structured_ws = load_workbook(structured_export).active
-    for column in ["B", "C", "D", "E", "F", "G", "H", "I", "L", "M", "N", "O"]:
+    for column in ["B", "C", "D", "E", "F", "G", "H", "I", "L", "M", "N", "O", "P"]:
         assert structured_ws.column_dimensions[column].width == 10.21
     assert structured_ws.column_dimensions["F"].width == 10.21
     assert structured_ws.column_dimensions["I"].width == 10.21
@@ -141,7 +154,7 @@ def test_resident_ledger_filters_only_second_indicator(tmp_path: Path) -> None:
     sheet = workbook.active
     headers = ["编号", "1级点位", "2级点位", "3级点位", "具体问题", "1级指标", "2级指标", "3级指标"]
     sheet.append(headers)
-    sheet.append([1, "点位", "小区", "街道A", "桶满冒", "垃圾分类", "居民自主投放", "投放错误"])
+    sheet.append([5, "点位", "小区", "街道A", "桶满冒", "垃圾分类", "居民自主投放", "投放错误"])
     sheet.append([2, "点位", "小区", "街道A", "满冒", "垃圾分类", "容器满冒", "容器垃圾满冒堆积"])
     workbook.save(source)
     processor = ExcelProcessor()
@@ -150,8 +163,10 @@ def test_resident_ledger_filters_only_second_indicator(tmp_path: Path) -> None:
     resident = ResidentService().make_resident_ledger(problem)
 
     indicator_idx = resident.headers.index("2级指标")
+    number_idx = resident.headers.index("编号")
     assert len(resident.rows) == 1
     assert all(row[indicator_idx] == "居民自主投放" for row in resident.rows)
+    assert [row[number_idx] for row in resident.rows] == [1]
 
 
 def test_accuracy_statistics_updates_by_name_only(tmp_path: Path) -> None:
@@ -184,48 +199,80 @@ def test_accuracy_statistics_updates_by_name_only(tmp_path: Path) -> None:
     xiaoqu.append([2, "街道A", "社区B", "花园小区", 100, 1, "-", None, 10, 0, None, "-", "-", None, None])
     xiaoqu.append([3, "街道A", "社区C", "无居民小区", 100, 1, "-", None, 10, 7, None, "-", "-", None, None])
     xiaoqu.append([4, "街道A", "社区D", "驿站小区", 100, 1, "-", None, 10, 0, None, "-", "-", None, None])
+    xiaoqu.row_dimensions[7].height = 24
+    xiaoqu.cell(row=7, column=4).fill = PatternFill(fill_type="solid", fgColor="FFFFCC00")
+    xiaoqu.cell(row=7, column=4).font = Font(name="宋体", sz=12, bold=True)
+    xiaoqu.append([None] * 15)
     cunju = stats.create_sheet("村居")
     cunju.append(["267个村居垃圾桶站值守率及投放准确率"])
     cunju.append(["基本信息", None, None, "投放准确率", None, None, "垃圾分类纯净率", None, None, "日期"])
     cunju.append(["序号", "街乡镇\n名称", "村居名称", "投放总数", "投放错误数", "投放准确率", "投放总数", "投放错误数", "投放准确率", None])
     cunju.append([1, "镇A", "幸福村", 10, 0, None, "-", "-", None, None])
     cunju.append([2, "镇A", "忽略村", 10, 6, None, "-", "-", None, None])
+    cunju.row_dimensions[5].height = 25
+    cunju.cell(row=5, column=3).fill = PatternFill(fill_type="solid", fgColor="FF99CCFF")
+    cunju.cell(row=5, column=3).font = Font(name="宋体", sz=12, bold=True)
+    cunju.append([None] * 10)
     stats.save(stats_path)
 
     processor = ExcelProcessor()
     problem = processor.load_ledger(problem_path)
+    problem.date_label = "7月27日"
+    problem.metadata["date_value"] = None
     saved = AccuracyService().update_statistics(problem, stats_path)
 
     updated = load_workbook(saved, data_only=False)
     assert updated["小区"].cell(row=4, column=10).value == 3
-    assert updated["小区"].cell(row=4, column=15).value == datetime(2026, 7, 8)
-    assert updated["小区"].cell(row=4, column=15).number_format == "m月d日"
+    assert updated["小区"].cell(row=4, column=15).value == datetime(2026, 7, 27)
+    assert updated["小区"].cell(row=4, column=15).number_format == 'm"月"d"日"'
     assert updated["小区"].cell(row=5, column=10).value == 2
-    assert updated["小区"].cell(row=5, column=15).value == datetime(2026, 7, 8)
+    assert updated["小区"].cell(row=5, column=15).value == datetime(2026, 7, 27)
     assert updated["小区"].cell(row=6, column=10).value == "-"
-    assert updated["小区"].cell(row=6, column=15).value == datetime(2026, 7, 8)
+    assert updated["小区"].cell(row=6, column=15).value == datetime(2026, 7, 27)
     assert updated["小区"].cell(row=7, column=10).value == 1
-    assert updated["小区"].cell(row=7, column=15).value == datetime(2026, 7, 8)
+    assert updated["小区"].cell(row=7, column=15).value == datetime(2026, 7, 27)
     assert updated["小区"].cell(row=8, column=1).value == 5
     assert updated["小区"].cell(row=8, column=2).value == "街道B"
     assert updated["小区"].cell(row=8, column=3).value == "社区X"
     assert updated["小区"].cell(row=8, column=4).value == "新增小区"
+    assert updated["小区"].row_dimensions[8].height == 24
+    assert updated["小区"].cell(row=8, column=4).fill.fgColor.rgb == "FFFFCC00"
+    assert updated["小区"].cell(row=8, column=4).font.name == "微软雅黑"
+    assert updated["小区"].cell(row=8, column=4).font.sz == 11
+    assert updated["小区"].cell(row=8, column=4).font.bold is False
+    assert updated["小区"].cell(row=4, column=2).alignment.horizontal == "center"
+    assert updated["小区"].cell(row=4, column=3).alignment.horizontal == "center"
+    assert updated["小区"].cell(row=4, column=4).alignment.horizontal == "center"
+    assert updated["小区"].cell(row=8, column=2).alignment.horizontal == "center"
+    assert updated["小区"].cell(row=8, column=3).alignment.horizontal == "center"
+    assert updated["小区"].cell(row=8, column=4).alignment.horizontal == "center"
     assert updated["小区"].cell(row=8, column=9).value == 10
     assert updated["小区"].cell(row=8, column=10).value == 5
-    assert updated["小区"].cell(row=8, column=15).value == datetime(2026, 7, 8)
-    assert updated["小区"].cell(row=8, column=15).number_format == "m月d日"
+    assert updated["小区"].cell(row=8, column=11).value == '=IF(OR(I8="",I8=0,J8="",J8="-"),"",1-J8/I8)'
+    assert updated["小区"].cell(row=8, column=11).number_format == "0.00%"
+    assert updated["小区"].cell(row=8, column=15).value == datetime(2026, 7, 27)
+    assert updated["小区"].cell(row=8, column=15).number_format == 'm"月"d"日"'
+    assert updated["小区"].max_row == 8
     assert updated["村居"].cell(row=4, column=5).value == 4
-    assert updated["村居"].cell(row=4, column=10).value == datetime(2026, 7, 8)
-    assert updated["村居"].cell(row=4, column=10).number_format == "m月d日"
+    assert updated["村居"].cell(row=4, column=10).value == datetime(2026, 7, 27)
+    assert updated["村居"].cell(row=4, column=10).number_format == 'm"月"d"日"'
     assert updated["村居"].cell(row=5, column=5).value == "-"
-    assert updated["村居"].cell(row=5, column=10).value == datetime(2026, 7, 8)
+    assert updated["村居"].cell(row=5, column=10).value == datetime(2026, 7, 27)
     assert updated["村居"].cell(row=6, column=1).value == 3
     assert updated["村居"].cell(row=6, column=2).value == "镇B"
     assert updated["村居"].cell(row=6, column=3).value == "新增村"
+    assert updated["村居"].row_dimensions[6].height == 25
+    assert updated["村居"].cell(row=6, column=3).fill.fgColor.rgb == "FF99CCFF"
+    assert updated["村居"].cell(row=6, column=3).font.name == "微软雅黑"
+    assert updated["村居"].cell(row=6, column=3).font.sz == 11
+    assert updated["村居"].cell(row=6, column=3).font.bold is False
     assert updated["村居"].cell(row=6, column=4).value == 10
     assert updated["村居"].cell(row=6, column=5).value == 1
-    assert updated["村居"].cell(row=6, column=10).value == datetime(2026, 7, 8)
-    assert updated["村居"].cell(row=6, column=10).number_format == "m月d日"
+    assert updated["村居"].cell(row=6, column=6).value == '=IF(OR(D6="",D6=0,E6="",E6="-"),"",1-E6/D6)'
+    assert updated["村居"].cell(row=6, column=6).number_format == "0.00%"
+    assert updated["村居"].cell(row=6, column=10).value == datetime(2026, 7, 27)
+    assert updated["村居"].cell(row=6, column=10).number_format == 'm"月"d"日"'
+    assert updated["村居"].max_row == 6
 
 
 def test_notice_generation_uses_two_streets_and_one_town(tmp_path: Path) -> None:
@@ -235,6 +282,7 @@ def test_notice_generation_uses_two_streets_and_one_town(tmp_path: Path) -> None
             ["", "点位", "小区", "滨河街道", "社区A", "小区甲", "问题1", "垃圾分类", "容器满冒", "容器垃圾满冒堆积"],
             ["", "点位", "小区", "滨河街道", "社区B", "小区乙", "问题2", "垃圾分类", "容器满冒", "容器垃圾满冒堆积"],
             ["", "点位", "小区", "滨河街道", "社区C", "小区丙", "问题3", "垃圾分类", "桶站及周边环境", "桶站及周边环境不整洁"],
+            ["", "点位", "小区", "滨河街道", "社区D", "小区丁", "问题7", "垃圾分类", "居民自主投放", "投放错误"],
             ["", "点位", "小区", "兴谷街道", "社区C", "小区丙", "问题4", "垃圾分类", "居民自主投放", "投放错误"],
             ["", "点位", "小区", "平谷镇", "社区D", "小区丁", "问题5", "垃圾分类", "容器整洁率", "容器脏污"],
             ["", "点位", "小区", "平谷镇", "社区E", "小区戊", "问题6", "垃圾分类", "容器整洁率", "容器脏污"],
@@ -245,9 +293,9 @@ def test_notice_generation_uses_two_streets_and_one_town(tmp_path: Path) -> None
     saved = NoticeService().generate_notice(problem, tmp_path / "通告.txt")
     text = saved.read_text(encoding="utf-8")
 
-    assert "7月10日，区级检查滨河街道3个小区，发现问题3处" in text
-    assert "容器垃圾满冒堆积（66.7%）、桶站及周边环境不整洁（33.3%）" in text
-    assert "小区甲、小区乙和小区丙问题占比均为33.3%" in text
+    assert "7月10日，区级检查滨河街道4个小区，发现问题4处" in text
+    assert "容器垃圾满冒堆积（50.0%）、桶站及周边环境不整洁（25.0%）、居民自主投放不规范（25.0%）" in text
+    assert "小区甲、小区乙和小区丙问题占比均为25.0%" in text
     assert "检查兴谷街道1个小区，发现问题1处" in text
     assert "居民自主投放不规范（100.0%）。其中小区丙问题率最高，占比100.0%" in text
     assert "检查平谷镇2个小区，发现问题2处" in text

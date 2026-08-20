@@ -3,9 +3,9 @@
 
 a = Analysis(
     ['app.py'],
-    pathex=['E:\\xlsxData-processor'],
+    pathex=['E:\\PingGu\\PG-Daily-xlsx'],
     binaries=[],
-    datas=[('E:\\xlsxData-processor\\input\\两街一镇通告模板.txt', 'input')],
+    datas=[('E:\\PingGu\\PG-Daily-xlsx\\input\\两街一镇通告模板.txt', 'input')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
